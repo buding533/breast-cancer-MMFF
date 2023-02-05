@@ -1,0 +1,544 @@
+import numpy as np
+import os
+import pandas as pd
+from radiomics import featureextractor as FEE
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+
+# set_Dir = r'breast/jicheng/dataset'
+
+# mask_dir_ne = r'breast/jicheng/dataset/radiomicset/02030405071516/mask/negative'
+# mask_dir_po = r'breast/jicheng/dataset/radiomicset/02030405071516/mask/positive'
+# data_dir_ne = r'breast/jicheng/dataset/radiomicset/02030405071516/data/negative'
+# data_dir_po = r'breast/jicheng/dataset/radiomicset/02030405071516/data/positive'
+
+# mask_test1_ne = r'breast/jicheng/dataset/radiomicset/11/mask/negative'
+# mask_test1_po = r'breast/jicheng/dataset/radiomicset/11/mask/positive'
+# data_test1_ne = r'breast/jicheng/dataset/radiomicset/11/data/negative'
+# data_test1_po = r'breast/jicheng/dataset/radiomicset/11/data/positive'
+
+# mask_test2_ne = r'breast/jicheng/dataset/radiomicset/12/mask/negative'
+# mask_test2_po = r'breast/jicheng/dataset/radiomicset/12/mask/positive'
+# data_test2_ne = r'breast/jicheng/dataset/radiomicset/12/data/negative'
+# data_test2_po = r'breast/jicheng/dataset/radiomicset/12/data/positive'
+
+# params = os.path.join(set_Dir,"params.yaml")
+# extractor = FEE.RadiomicsFeatureExtractor(params)
+
+# #提取特征
+# def extraction(datafile,maskfile,df,class_name):
+#     if class_name == 'negative':
+#         class_01 = 0
+#     else:
+#         class_01 = 1
+#     for root, dirs,files in os.walk(datafile):
+#         dirs.sort()
+#         for file in files:
+#             datapath = os.path.join(root,file)
+#             patient_name = os.path.basename(root)
+#             maskpath = os.path.join(maskfile,patient_name,file[:-5]+".labels.nrrd")
+#             print(datapath,maskpath)
+#             result = extractor.execute(datapath, maskpath)
+#             df_add = pd.DataFrame.from_dict(result.values()).T
+#             df_add.columns = result.keys()
+#             df_add.insert(0,'patient',patient_name[:6])
+#             df_add.insert(0,'labels',class_01)
+#             df = pd.concat([df,df_add])
+#     return df
+
+
+# df_train_ne = pd.DataFrame()
+# df_train_po = pd.DataFrame()
+
+# df_test1_ne = pd.DataFrame()
+# df_test1_po = pd.DataFrame()
+
+# df_test2_ne = pd.DataFrame()
+# df_test2_po = pd.DataFrame()
+
+# # df_tra_ne = extraction(data_dir_ne,mask_dir_ne,df_train_ne,'negative')
+# # df_tra_po = extraction(data_dir_po,mask_dir_po,df_train_po,'positive')
+# # df_train = pd.concat([df_tra_ne,df_tra_po])
+# # df_train_path = os.path.join(set_Dir,"radio_02030405071516.csv")
+# # df_train.to_csv(df_train_path)
+
+
+# # df_tes1_ne = extraction(data_test1_ne,mask_test1_ne,df_test1_ne,'negative')
+# # df_tes1_po = extraction(data_test1_po,mask_test1_po,df_test1_po,'positive')
+# # df_test1 = pd.concat([df_tes1_ne,df_tes1_po])
+# # df_test1_path = os.path.join(set_Dir,"radio_11.csv")
+# # df_test1.to_csv(df_test1_path)
+
+# # df_tes2_ne = extraction(data_test2_ne,mask_test2_ne,df_test2_ne,'negative')
+# # df_tes2_po = extraction(data_test2_po,mask_test2_po,df_test2_po,'positive')
+# # df_test2 = pd.concat([df_tes2_ne,df_tes2_po])
+# # df_test2_path = os.path.join(set_Dir,"radio_12.csv")
+# # df_test2.to_csv(df_test2_path)
+
+# # 影像组学特征向量导入
+# train_radio_datapath = r'breast/jicheng/dataset/radio_02030405071516.csv'
+# train_radio_data = pd.read_csv(train_radio_datapath)
+# test1_radio_datapath = r'breast/jicheng/dataset/radio_11.csv'
+# test1_radio_data = pd.read_csv(test1_radio_datapath)
+# test2_radio_datapath = r'breast/jicheng/dataset/radio_12.csv'
+# test2_radio_data = pd.read_csv(test2_radio_datapath)
+# index = ['original_shape2D_Sphericity',
+#         'original_shape2D_PerimeterSurfaceRatio',
+#         'original_firstorder_Kurtosis',
+#         'original_firstorder_Energy',
+#         'original_glcm_ClusterShade',
+#         'original_glcm_Contrast',
+#         'original_glcm_Idmn',
+#         'original_glcm_JointEnergy',
+#         'original_gldm_DependenceNonUniformityNormalized',
+#         'original_gldm_DependenceVariance',
+#         'original_gldm_LowGrayLevelEmphasis',
+#         'original_glrlm_GrayLevelNonUniformity',
+#         'original_glrlm_ShortRunEmphasis',
+#         'original_glrlm_ShortRunLowGrayLevelEmphasis',
+#         'original_glrlm_LongRunHighGrayLevelEmphasis',
+#         'original_glrlm_RunLengthNonUniformity',
+#         'original_glszm_SmallAreaEmphasis',
+#         'original_glszm_SmallAreaLowGrayLevelEmphasis',
+#         'original_glszm_LargeAreaLowGrayLevelEmphasis',
+#         'original_ngtdm_Busyness',
+#         'original_ngtdm_Coarseness',
+#         'original_ngtdm_Complexity',
+#         'original_ngtdm_Strength']
+# print(train_radio_data)
+# x_train_radio = train_radio_data[train_radio_data.columns[25:]]
+# # x_train_radio = train_radio_data[index]
+# y_train_radio = train_radio_data['labels']
+# x_test1_radio = test1_radio_data[test1_radio_data.columns[25:]]
+# # x_test1_radio = test1_radio_data[index]
+# y_test1_radio = test1_radio_data['labels']
+# x_test2_radio = test2_radio_data[test2_radio_data.columns[25:]]
+# # x_test2_radio = test2_radio_data[index]
+# y_test2_radio = test2_radio_data['labels']
+
+# radio_train_path = r'breast/jicheng/dataset/radio_02030405071516_all.csv'
+# radio_test1_path = r'breast/jicheng/dataset/radio_11_all.csv'
+# radio_test2_path = r'breast/jicheng/dataset/radio_12_all.csv'
+
+# index_train = x_train_radio.columns
+# scaler = StandardScaler()
+# scaler.fit(x_train_radio)
+# x_train_radio_vector = scaler.transform(x_train_radio)
+# x_train_radio_vector = pd.DataFrame(x_train_radio_vector)
+# x_train_radio_vector.columns = index_train
+# radio_train_all = pd.concat([train_radio_data[train_radio_data.columns[1:3]], x_train_radio_vector],axis=1)
+# radio_train_all.to_csv(radio_train_path)
+# print("the x_train_radio head is :")
+# print(radio_train_all.head())
+
+# index_1 = x_test1_radio.columns
+# x_test1_radio_vector = scaler.transform(x_test1_radio)
+# x_test1_radio_vector = pd.DataFrame(x_test1_radio_vector)
+# x_test1_radio_vector.columns = index_1
+# radio_test1_all = pd.concat([test1_radio_data[test1_radio_data.columns[1:3]], x_test1_radio_vector],axis=1)
+# radio_test1_all.to_csv(radio_test1_path)
+# print("the x_test_radio head is :")
+# print(radio_test1_all)
+
+# index_2 = x_test2_radio.columns
+# x_test2_radio_vector = scaler.transform(x_test2_radio)
+# x_test2_radio_vector = pd.DataFrame(x_test2_radio_vector)
+# x_test2_radio_vector.columns = index_2
+# radio_test2_all = pd.concat([test2_radio_data[test2_radio_data.columns[1:3]], x_test2_radio_vector],axis=1)
+# radio_test2_all.to_csv(radio_test2_path)
+# print("the x_test_radio head is :")
+# print(radio_test2_all.head())
+
+#******************************************************************************
+from sklearn.linear_model import LassoCV
+from scipy.stats import pearsonr,ttest_ind,levene
+from sklearn.utils import shuffle
+
+def data_split(data):
+    data_ne = data[:][data['labels'] == 0]
+    data_po = data[:][data['labels'] == 1]
+    print("data_ne 形状：", data_ne.shape)
+    print("data_po 形状：", data_po.shape)
+    return data_ne, data_po
+
+def T_check(data_ne, data_po,i):
+    #T检验
+    index = []
+    for colName in data_ne.columns[i:]:
+        if levene(data_ne[colName], data_po[colName])[1] > 0.05: 
+            if ttest_ind(data_ne[colName], data_ne[colName])[1] < 0.05: 
+                index.append(colName)
+        else: 
+            if ttest_ind(data_ne[colName], data_po[colName],equal_var=False)[1] < 0.05: 
+                index.append(colName)
+    print(len(index))
+    # print(index)
+    return index
+
+
+def Lasso_select(x,y):
+
+    #lasso降维
+    alphas = np.logspace(-3,1,50)
+    model_lassoCV = LassoCV(alphas=alphas,cv = 10,max_iter=500000).fit(x,y)
+    #查看最优的alpha
+    print("the alpha is "+ str(model_lassoCV.alpha_))
+
+    #挑出了哪些特征
+    coef = pd.Series(model_lassoCV.coef_, index=x.columns)
+    #统计有用和无用特征个数
+    print("Lasso picked "+str(sum(coef!=0))+" variables and eliminated the other "+str(sum(coef==0)))
+    print(coef[coef!=0])#输出有哪些特征以及对应的系数
+    index = coef[coef != 0].index
+    print(index)
+    return index
+# """
+
+# """
+#===================================================关于lasso的几幅图==========================================#
+# import matplotlib.pyplot as plt 
+# import seaborn as sns #
+# from matplotlib.pyplot import MultipleLocator
+
+# #特征权重
+# plt.figure(figsize=(10,5), dpi = 300)
+# x_values = np.arange(len(index))
+# y_values = coef[coef != 0]
+# plt.bar(x_values, y_values        #横向bar使用：barh
+#         , color = 'lightblue'     #设置bar的颜色
+#         , edgecolor = 'black'     #设置bar边框颜色
+#         , alpha = 0.8             #设置不透明度
+#        )
+# plt.xticks(x_values,index
+#            , rotation='45'        #旋转xticks
+#            , ha = 'right'         #xticks的水平对齐方式
+#            ,va = 'top'            #xticks的垂直对齐方式
+#           )
+# plt.xlabel("feature",fontsize = 16)             #横轴名称
+# plt.ylabel("weight",fontsize = 16)              #纵轴名称
+# plt.savefig('breast/Breast_radiomics/pictures/feature weights dl.jpg', bbox_inches='tight')
+
+# #特征相关性热图
+# plt.figure(figsize=(10,8), dpi= 300)
+# sns.heatmap(x_train.corr()                           #计算特征间的相关性
+#             , xticklabels=x_train.corr().columns
+#             , yticklabels=x_train.corr().columns
+#             , cmap='RdYlGn'
+#             , center=0.8
+#             , annot=True)
+# plt.title('Correlogram of features', fontsize=30)
+# plt.xticks(fontsize=10
+#         , rotation='45'        #旋转xticks
+#         , ha = 'right'         #xticks的水平对齐方式
+#         , va = 'top'            #xticks的垂直对齐方式
+#         )
+# plt.yticks(fontsize=10
+#         , ha = 'right'         #xticks的水平对齐方式
+#         , va = 'top'            #xticks的垂直对齐方式
+#         )
+# plt.savefig('breast/Breast_radiomics/pictures/feature collection heatmap dl.jpg', bbox_inches='tight')
+
+
+# #
+# MSEs = model_lassoCV.mse_path_
+
+# # MSEs_mean, MSEs_std = [], []
+# # for i in range(len(MSEs)):
+# #     MSEs_mean.append(MSEs[i].mean())
+# #     MSEs_std.append(MSEs[i].std())
+
+# MSEs_mean = np.apply_along_axis(np.mean,1,MSEs)
+# MSEs_std = np.apply_along_axis(np.std,1,MSEs)
+
+# plt.figure()
+# plt.errorbar(model_lassoCV.alphas_,MSEs_mean    #x, y数据，一一对应
+#              , yerr=MSEs_std                    #y误差范围
+#              , fmt="o"                          #数据点标记
+#              , ms=3                             #数据点大小
+#              , mfc="r"                          #数据点颜色
+#              , mec="r"                          #数据点边缘颜色
+#              , ecolor="lightblue"               #误差棒颜色
+#              , elinewidth=2                     #误差棒线宽
+#              , capsize=4                        #误差棒边界线长度
+#              , capthick=1)                      #误差棒边界线厚度
+# plt.semilogx()
+# plt.axvline(model_lassoCV.alpha_,color = 'black',ls="--")
+# plt.xlabel('Lambda')
+# plt.ylabel('MSE')
+# ax = plt.gca()
+# y_major_locator = MultipleLocator(0.05)
+# plt.savefig('breast/Breast_radiomics/pictures/lambda-MSE_dl.jpg')
+
+# #
+# coefs = model_lassoCV.path(x_train_raw,y_train,alphas = alphas, max_iter = 100000)[1].T
+# plt.figure()
+# plt.semilogx(model_lassoCV.alphas_,coefs, '-')
+# plt.axvline(model_lassoCV.alpha_,color = 'black',ls="--")
+# plt.xlabel('Lambda')
+# plt.ylabel('Coefficients')
+# plt.savefig('breast/Breast_radiomics/pictures/lambda-Coefficients_dl.jpg')
+# """
+#******************************************************************************
+from xgboost import XGBRFClassifier
+
+radio_train_path = r'breast/jicheng/dataset/radio_02030405071516_all.csv'
+radio_test1_path = r'breast/jicheng/dataset/radio_11_all.csv'
+radio_test2_path = r'breast/jicheng/dataset/radio_12_all.csv'
+
+index = ['original_shape2D_MinorAxisLength', 'original_shape2D_Sphericity',
+       'original_firstorder_10Percentile', 'original_firstorder_Energy',
+       'original_firstorder_TotalEnergy', 'original_glcm_ClusterShade',
+       'original_glcm_Correlation', 'original_glcm_SumEntropy',
+       'original_gldm_DependenceVariance',
+       'original_glrlm_LongRunHighGrayLevelEmphasis',
+       'original_glrlm_RunLengthNonUniformityNormalized',
+       'original_glrlm_RunVariance', 'original_glszm_GrayLevelNonUniformity',
+       'original_glszm_LowGrayLevelZoneEmphasis',
+       'original_glszm_SizeZoneNonUniformity',
+       'original_glszm_SmallAreaLowGrayLevelEmphasis',
+       'original_glszm_ZoneVariance', 'original_ngtdm_Busyness',
+       'original_ngtdm_Complexity', 'original_ngtdm_Contrast']
+
+xy_train_radio = pd.read_csv(radio_train_path)
+xy_test1_radio = pd.read_csv(radio_test1_path)
+xy_test2_radio = pd.read_csv(radio_test2_path)
+
+# ###########################################################
+xy_train_radio_ne, xy_train_radio_po = data_split(xy_train_radio)
+# index = T_check(xy_train_radio_ne, xy_train_radio_po, 3)
+xy_test1_radio_ne, xy_test1_radio_po = data_split(xy_test1_radio)
+xy_test2_radio_ne, xy_test2_radio_po = data_split(xy_test2_radio)
+
+# #T检验后训练集整理
+if 'labels' not in index : index = ['labels']+index
+xy_train_radio_ne = xy_train_radio_ne[index]
+xy_train_radio_po = xy_train_radio_po[index]
+xy_train_radio = pd.concat([xy_train_radio_ne, xy_train_radio_po])
+xy_train_radio = shuffle(xy_train_radio)
+xy_train_radio.index = range(len(xy_train_radio))
+x_train_radio = xy_train_radio[xy_train_radio.columns[1:]]
+y_train_radio = xy_train_radio['labels']
+
+# 注意下面两行在训练集与测试集上的区别
+scaler = StandardScaler()
+scaler.fit(x_train_radio)
+x_train_radio = scaler.transform(x_train_radio)
+x_train_radio = pd.DataFrame(x_train_radio)
+x_train_radio.columns = index[1:]
+# print(x_train.head())
+# T检验后测试集整理
+xy_test1_radio_ne = xy_test1_radio_ne[index]
+xy_test1_radio_po = xy_test1_radio_po[index]
+xy_test1_radio = pd.concat([xy_test1_radio_ne, xy_test1_radio_po])
+x_test1_radio = xy_test1_radio[xy_test1_radio.columns[1:]]
+x_test1_radio = scaler.transform(x_test1_radio)
+x_test1_radio = pd.DataFrame(x_test1_radio)
+x_test1_radio.columns = index[1:]
+y_test1_radio = xy_test1_radio['labels']
+print(x_test1_radio.head())
+
+xy_test2_radio_ne = xy_test2_radio_ne[index]
+xy_test2_radio_po = xy_test2_radio_po[index]
+xy_test2_radio = pd.concat([xy_test2_radio_ne, xy_test2_radio_po])
+x_test2_radio = xy_test2_radio[xy_test2_radio.columns[1:]]
+x_test2_radio = scaler.transform(x_test2_radio)
+x_test2_radio = pd.DataFrame(x_test2_radio)
+x_test2_radio.columns = index[1:]
+y_test2_radio = xy_test2_radio['labels']
+print(x_test2_radio.head())
+
+# Lasso_index = Lasso_select(x_train_radio,y_train_radio)
+# print(Lasso_index)
+# x_train_radio = x_train_radio[Lasso_index]
+# x_test1_radio = x_test1_radio[Lasso_index]
+# x_test2_radio = x_test2_radio[Lasso_index]
+# print(x_train_radio.head())
+
+###########################################################
+
+x_train_radio_vector = x_train_radio.values
+y_train_radio_vector = y_train_radio.values
+print('the x_train_radio_vector is :',x_train_radio_vector.shape,y_train_radio_vector.shape)
+x_test1_radio_vector = x_test1_radio.values
+y_test1_radio_vector = y_test1_radio.values
+print('the x_test1_radio_vector is :',x_test1_radio_vector.shape,y_test1_radio_vector.shape)
+x_test2_radio_vector = x_test2_radio.values
+y_test2_radio_vector = y_test2_radio.values
+print('the x_test2_radio_vector is :',x_test2_radio_vector.shape,y_test2_radio_vector.shape)
+
+def cm(y_test,y_predicted,name):
+    classes = [0,1]
+    cm = confusion_matrix(y_test,y_predicted, labels=[0,1])
+    print(cm)
+    TP = cm[1, 1]
+    TN = cm[0, 0]
+    FP = cm[0, 1]
+    FN = cm[1, 0]
+    # 通过混淆矩阵计算每个评估指标的值
+    print('Accuracy:', (TP + TN) / float(TP + TN + FP + FN))
+    print('Sensitivity:', TP / float(TP + FN))
+    print('Specificity:', TN / float(TN + FP))
+    print('PPV:',TP / float(TP + FP))
+    print('NPV:',TN / float(TN + FN))
+    print('Recall:',TP / float(TP + FN))
+    print('Precision:',TP / float(TP + FP))
+    P = TP / float(TP + FP)
+    R = TP / float(TP + FN)
+    print('F1-score:',(2*P*R)/(P+R))
+    plt.figure(figsize=(5,5))
+    plt.imshow(cm, cmap=plt.cm.Greens)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation = 0)
+    plt.yticks(tick_marks, classes)
+    thresh = cm.max() / 2.
+    for i in range(len(cm)):
+        for j in range(len(cm)):
+            plt.annotate(cm[j, i], xy=(i, j), horizontalalignment='center', verticalalignment='center', 
+                            fontsize=16,color = 'white' if cm[i, j] > thresh else 'black')
+    plt.ylabel('True label', fontsize=16)
+    plt.xlabel('Predicted label', fontsize=16)
+    plt.title('Confusion matrix : ' + name,fontsize=16)
+    plt.savefig('breast/jicheng/pictures/cm_' + name + '.jpg')
+    plt.show()
+
+#roc曲线
+from sklearn.metrics import roc_curve, auc  ###计算roc和auc
+from Confidence_interval import bootstrap_auc
+def roc(y_test,y_score,name):
+
+    fpr,tpr,threshold = roc_curve(y_test, y_score) ###计算真正率和假正率
+    # print(threshold)
+    roc_auc = auc(fpr,tpr) ###计算auc的值
+    print('AUC : {}'.format(roc_auc))
+
+    plt.figure(figsize=(5,5))
+    plt.plot(fpr, tpr, color='darkorange', linewidth=2, label='ROC curve (area = %0.2f)' % roc_auc) ###假正率为横坐标，真正率为纵坐标做曲线
+    plt.plot([0, 1], [0, 1], color='navy', linewidth=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize = 16)
+    plt.ylabel('True Positive Rate', fontsize = 16)
+    plt.title('Receiver operating characteristic : '+ name,fontsize = 16)
+    plt.legend(loc="lower right", fontsize = 12)
+    plt.savefig('breast/jicheng/pictures/roc_' + name + '.jpg')
+    plt.show()
+
+# clf_radio =XGBRFClassifier(random_state=1,use_label_encoder=False,eval_metric=['logloss','auc','error']).fit(x_train_radio_vector,y_train_radio_vector)
+import joblib
+
+# 保存 model
+# joblib.dump(clf_radio, 'breast/jicheng/checkpoint/saved_models/singal_radiomics.pkl')
+
+# 加载 model
+model_radio = joblib.load('breast/jicheng/checkpoint/saved_models/singal_radiomics.pkl')
+
+y_test1_predict_radio = model_radio.predict_proba(x_test1_radio_vector)
+y_test2_predict_radio = model_radio.predict_proba(x_test2_radio_vector)
+y_train_predict_radio = model_radio.predict_proba(x_train_radio_vector)
+print(y_test1_predict_radio)
+
+y_test1_predict_classindex_radio = np.argmax(y_test1_predict_radio,axis=1)
+y_test2_predict_classindex_radio = np.argmax(y_test2_predict_radio,axis=1)
+y_train_predict_classindex_radio = np.argmax(y_train_predict_radio,axis=1)
+print(y_test1_predict_classindex_radio)
+
+y_test1_predict_radio = y_test1_predict_radio[:,1]
+y_test2_predict_radio = y_test2_predict_radio[:,1]
+y_train_predict_radio = y_train_predict_radio[:,1]
+print(y_test1_predict_radio)
+
+flag_test1_radio = 0
+for i in range(len(y_test1_predict_classindex_radio)):
+    if(y_test1_predict_classindex_radio[i] == y_test1_radio_vector[i]):
+        flag_test1_radio += 1
+    else:
+        continue
+print("radio test1 accuracy:", flag_test1_radio/(len(y_test1_radio_vector)))
+
+flag_test2_radio = 0
+for i in range(len(y_test2_predict_classindex_radio)):
+    if(y_test2_predict_classindex_radio[i] == y_test2_radio_vector[i]):
+        flag_test2_radio += 1
+    else:
+        continue
+print("radio test2 accuracy:", flag_test2_radio/(len(y_test2_radio_vector)))
+
+flag_train_radio = 0
+for i in range(len(y_train_predict_classindex_radio)):
+    if(y_train_predict_classindex_radio[i] == y_train_radio_vector[i]):
+        flag_train_radio += 1
+    else:
+        continue
+print("radio train accuracy:", flag_train_radio/(len(y_train_radio_vector)))
+
+print("*******************************")
+# print(y_test1_radio_vector.shape, y_test1_predict_radio.shape)
+# exit(0)
+
+
+precision_train = precision_score(y_train_radio_vector,y_train_predict_classindex_radio, average='binary')
+recall_train = recall_score(y_train_radio_vector, y_train_predict_classindex_radio, average='binary')
+f1_train = f1_score(y_train_radio_vector, y_train_predict_classindex_radio, average='binary')
+acc_train = accuracy_score(y_train_radio_vector, y_train_predict_classindex_radio)
+auc_CI_train = bootstrap_auc(y_train_radio_vector, y_train_predict_radio,len(y_train_radio_vector))
+
+precision_test1 = precision_score(y_test1_radio_vector,y_test1_predict_classindex_radio, average='binary')
+recall_test1 = recall_score(y_test1_radio_vector, y_test1_predict_classindex_radio, average='binary')
+f1_test1 = f1_score(y_test1_radio_vector, y_test1_predict_classindex_radio, average='binary')
+acc_test1 = accuracy_score(y_test1_radio_vector, y_test1_predict_classindex_radio)
+auc_CI_test1 = bootstrap_auc(y_test1_radio_vector, y_test1_predict_radio,len(y_test1_radio_vector))
+
+precision_test2 = precision_score(y_test2_radio_vector,y_test2_predict_classindex_radio, average='binary')
+recall_test2 = recall_score(y_test2_radio_vector, y_test2_predict_classindex_radio, average='binary')
+f1_test2 = f1_score(y_test2_radio_vector, y_test2_predict_classindex_radio, average='binary')
+acc_test2 = accuracy_score(y_test1_radio_vector, y_test1_predict_classindex_radio)
+auc_CI_test2 = bootstrap_auc(y_test2_radio_vector, y_test2_predict_radio,len(y_test2_radio_vector))
+
+
+
+# print('the train 精准值 is :', precision_train)
+# print('the train 召回率 is :', recall_train)
+# print('the train F1 is :', f1_train)
+# print("the train 准确率 is :", acc_train)
+cm(y_train_radio_vector,y_train_predict_classindex_radio,'MModel_radio_02030405071516')
+roc(y_train_radio_vector,y_train_predict_radio,'MModel_radio_02030405071516')
+print("the train 置信区间 is :",auc_CI_train)
+print("********************************************")
+# print('the test1 精准值 is :', precision_test1)
+# print('the test1 召回率 is :', recall_test1)
+# print('the test1 F1 is :', f1_test1)
+# print("the test1 准确率 is :", acc_test1)
+cm(y_test1_radio_vector,y_test1_predict_classindex_radio,'MModel_radio_11')
+roc(y_test1_radio_vector,y_test1_predict_radio,'MModel_radio_11')
+print("the test1 置信区间 is :",auc_CI_test1)
+print("********************************************")
+# print('the test2 精准值 is :', precision_test2)
+# print('the test2 召回率 is :', recall_test2)
+# print('the test2 F1 is :', f1_test2)
+# print("the test2 准确率 is :", acc_test2)
+cm(y_test2_radio_vector,y_test2_predict_classindex_radio,'MModel_radio_12')
+roc(y_test2_radio_vector,y_test2_predict_radio,'MModel_radio_12')
+print("the test2 置信区间 is :",auc_CI_test2)
+
+a_labels = [i for i in y_train_radio_vector]
+a_predict = [i for i in y_train_predict_radio]
+b_labels = [i for i in y_test1_radio_vector]
+b_predict = [i for i in y_test1_predict_radio]
+c_labels = [i for i in y_test2_radio_vector]
+c_predict = [i for i in y_test2_predict_radio]
+
+
+df_result_train = pd.DataFrame({'radio_train_labels':a_labels,'radio_train_predict':a_predict})
+df_result_test1 = pd.DataFrame({'radio_test1_labels':b_labels,'radio_test1-predict':b_predict})
+df_result_test2 = pd.DataFrame({'radio_test2_labels':c_labels,'radio_test2-predict':c_predict})
+print(df_result_test1)
+
+predict_train = pd.read_csv('breast/jicheng/dataset/predict_train.csv')
+predict_test1 = pd.read_csv('breast/jicheng/dataset/predict_test1.csv')
+predict_test2 = pd.read_csv('breast/jicheng/dataset/predict_test2.csv')
+print(df_result_test1)
+df_result_train.to_csv(r"breast/jicheng/dataset/predict_radiomics_train.csv", index=False)
+df_result_test1.to_csv(r"breast/jicheng/dataset/predict_radiomics_test1.csv", index=False)
+df_result_test2.to_csv(r"breast/jicheng/dataset/predict_radiomics_test2.csv", index=False)
