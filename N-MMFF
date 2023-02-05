@@ -1,0 +1,730 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+import cv2
+import pickle
+import numpy as np
+import pandas as pd
+import shutil
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+import random
+import joblib
+
+import tensorflow as tf
+from tensorflow import expand_dims
+from tensorflow.keras.applications import InceptionResNetV2, VGG16, EfficientNetB3
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import Dense, Dropout, concatenate, GlobalAveragePooling2D, Reshape, MultiHeadAttention
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras import backend as K
+import tensorflow.keras.models
+
+
+# def lr_schedule(epoch):
+#     """Learning Rate Schedule
+#     Learning rate is scheduled to be reduced after 80, 120, 160, 180 epochs.
+#     Called automatically every epoch as part of callbacks during training.
+#     # Arguments
+#         epoch (int): The number of epochs
+#     # Returns
+#         lr (float32): learning rate
+#     """
+#     lr = 0.0003
+#     if epoch > 800:
+#         lr *= 0.5e-3
+#     elif epoch > 600:
+#         lr *= 1e-3
+#     elif epoch > 400:
+#         lr *= 1e-2
+#     elif epoch > 200:
+#         lr *= 1e-1
+#     print('Learning rate: ', lr)
+#     return lr
+
+# 图像数据读取函数
+def get_images(path, size=(224,224,3), normalized=False):
+    """
+    获得模型学习所需要的数据；
+    其中图像格式(num_images, weight, height)
+    标注格式(num_images, weight, height)，像素值为0/1
+    注：训练数据目录结构如下
+    path/
+            0/   - neg
+            1/   - pos
+    """
+
+    files_neg = os.listdir(os.path.join(path, 'negative'))
+    files_neg.sort()
+
+    files_pos = os.listdir(os.path.join(path, 'positive'))
+    files_pos.sort()
+
+    images = np.zeros([len(files_neg)+len(files_pos),size[0],size[1],size[2]])
+    y = np.zeros([len(files_neg)+len(files_pos)])
+    for i, file in enumerate(files_neg):
+        patient_file = os.path.join(path, 'negative', file)
+        for f in os.listdir(patient_file):
+            img = cv2.imread(os.path.join(patient_file, f))
+            # print(os.path.join(patient_file, f))
+            img = cv2.resize(img, (size[0], size[1]), cv2.INTER_AREA)
+            if normalized:
+                images[i] = img/255
+            else:
+                images[i] = img
+            y[i]=0
+
+    for i, file in enumerate(files_pos):
+        patient_file = os.path.join(path, 'positive', file)
+        for f in os.listdir(patient_file):
+            img = cv2.imread(os.path.join(patient_file, f))
+            img = cv2.resize(img, (size[0], size[1]), cv2.INTER_AREA)
+            if normalized:
+                images[i+len(files_neg)] = img/255
+            else:
+                images[i+len(files_neg)] = img
+            y[i+len(files_neg)]=1
+
+    return images,y
+
+# 临床数据分支
+train_cli_datapath = r'breast/jicheng/dataset/clinicset/cli_02030405071516.xls'
+train_cli_data = pd.read_excel(train_cli_datapath)
+test1_cli_datapath = r'breast/jicheng/dataset/clinicset/cli_11.xls'
+test1_cli_data = pd.read_excel(test1_cli_datapath)
+test2_cli_datapath = r'breast/jicheng/dataset/clinicset/cli_12.xls'
+test2_cli_data = pd.read_excel(test2_cli_datapath)
+
+train_cli_weightpath = r'breast/jicheng/dataset/cli_02030405071516_weight.csv'
+train_cli_weight = pd.read_csv(train_cli_weightpath)
+test1_cli_weightpath = r'breast/jicheng/dataset/cli_11_weight.csv'
+test1_cli_weight = pd.read_csv(test1_cli_weightpath)
+test2_cli_weightpath = r'breast/jicheng/dataset/cli_12_weight.csv'
+test2_cli_weight = pd.read_csv(test2_cli_weightpath)
+
+x_train_cli_vector = pd.concat([train_cli_data[train_cli_data.columns[3:]], train_cli_weight[train_cli_weight.columns[3:]]],axis=1)
+y_train_cli_vector = train_cli_data['labels']
+x_test1_cli_vector = pd.concat([test1_cli_data[test1_cli_data.columns[3:]], test1_cli_weight[test1_cli_weight.columns[3:]]],axis=1)
+y_test1_cli_vector = test1_cli_data['labels']
+x_test2_cli_vector = pd.concat([test2_cli_data[test2_cli_data.columns[3:]], test2_cli_weight[test2_cli_weight.columns[3:]]],axis=1)
+y_test2_cli_vector = test2_cli_data['labels']
+# print(train_cli_data.columns[3:],train_cli_weight.columns[3:])
+
+index_cli_train = x_train_cli_vector.columns
+scaler = StandardScaler()
+scaler.fit(x_train_cli_vector)
+x_train_cli_vector = scaler.transform(x_train_cli_vector)
+x_train_cli_vector = pd.DataFrame(x_train_cli_vector)
+x_train_cli_vector.columns = index_cli_train 
+xy_train_cli = pd.concat([y_train_cli_vector,x_train_cli_vector],axis=1)
+
+index_cli_test1 = x_test1_cli_vector.columns
+x_test1_cli_vector = scaler.transform(x_test1_cli_vector)
+x_test1_cli_vector = pd.DataFrame(x_test1_cli_vector)
+x_test1_cli_vector.columns = index_cli_test1
+xy_test1_cli = pd.concat([y_test1_cli_vector, x_test1_cli_vector],axis=1)
+
+index_cli_test2 = x_test2_cli_vector.columns
+x_test2_cli_vector = scaler.transform(x_test2_cli_vector)
+x_test2_cli_vector = pd.DataFrame(x_test2_cli_vector)
+x_test2_cli_vector.columns = index_cli_test2
+xy_test2_cli = pd.concat([y_test2_cli_vector, x_test2_cli_vector],axis=1)
+
+print("the cli train vector is:")
+print(xy_test1_cli)
+
+cli_train_path = r'breast/jicheng/dataset/cli_02030405071516_all.csv'
+cli_test1_path = r'breast/jicheng/dataset/cli_11_all.csv'
+cli_test2_path = r'breast/jicheng/dataset/cli_12_all.csv'
+xy_train_cli.to_csv(cli_train_path)
+xy_test1_cli.to_csv(cli_test1_path)
+xy_test2_cli.to_csv(cli_test2_path)
+
+
+# 影像组学特征向量导入
+train_radio_datapath = r'breast/jicheng/dataset/radio_02030405071516_all.csv'
+train_radio_data = pd.read_csv(train_radio_datapath)
+test1_radio_datapath = r'breast/jicheng/dataset/radio_11_all.csv'
+test1_radio_data = pd.read_csv(test1_radio_datapath)
+test2_radio_datapath = r'breast/jicheng/dataset/radio_12_all.csv'
+test2_radio_data = pd.read_csv(test2_radio_datapath)
+index = ['original_shape2D_Sphericity',
+        'original_shape2D_PerimeterSurfaceRatio',
+        'original_firstorder_Kurtosis',
+        'original_firstorder_Energy',
+        'original_glcm_ClusterShade',
+        'original_glcm_Contrast',
+        'original_glcm_Idmn',
+        'original_glcm_JointEnergy',
+        'original_gldm_DependenceNonUniformityNormalized',
+        'original_gldm_DependenceVariance',
+        'original_gldm_LowGrayLevelEmphasis',
+        'original_glrlm_GrayLevelNonUniformity',
+        'original_glrlm_ShortRunEmphasis',
+        'original_glrlm_ShortRunLowGrayLevelEmphasis',
+        'original_glrlm_LongRunHighGrayLevelEmphasis',
+        'original_glrlm_RunLengthNonUniformity',
+        'original_glszm_SmallAreaEmphasis',
+        'original_glszm_SmallAreaLowGrayLevelEmphasis',
+        'original_glszm_LargeAreaLowGrayLevelEmphasis',
+        'original_ngtdm_Busyness',
+        'original_ngtdm_Coarseness',
+        'original_ngtdm_Complexity',
+        'original_ngtdm_Strength']
+
+x_train_radio_vector = train_radio_data[train_radio_data.columns[3:]]
+# x_train_radio = train_radio_data[index]
+y_train_radio_vector = train_radio_data['labels']
+x_test1_radio_vector = test1_radio_data[test1_radio_data.columns[3:]]
+# x_test_radio = test_radio_data[index]
+y_test2_radio_vector = test2_radio_data['labels']
+x_test2_radio_vector = test2_radio_data[test2_radio_data.columns[3:]]
+# x_test_radio = test_radio_data[index]
+y_test2_radio_vector = test2_radio_data['labels']
+print(x_test2_radio_vector.head(5))
+# exit(0)
+
+# index3 = x_train_radio_vector.columns
+# scaler = StandardScaler()
+# scaler.fit(x_train_radio_vector)
+# x_train_radio_vector = scaler.transform(x_train_radio_vector)
+# x_train_radio_vector = pd.DataFrame(x_train_radio_vector)
+# x_train_radio_vector.columns = index3
+# xy_train_radio = pd.concat([y_train_radio_vector,x_train_radio_vector],axis=1)
+
+# index4 = x_test_radio_vector.columns
+# x_test_radio_vector = scaler.transform(x_test_radio_vector)
+# x_test_radio_vector = pd.DataFrame(x_test_radio_vector)
+# x_test_radio_vector.columns = index4
+# xy_test_radio = pd.concat([y_test_radio_vector, x_test_radio_vector],axis=1)
+
+# print("the train radio vector is:")
+# print(xy_test_radio)
+
+# radio_train_path = r'breast/jicheng/dataset/radio_train_all.csv'
+# radio_test_path = r'breast/jicheng/dataset/radio_test_all.csv'
+# xy_train_radio.to_csv(radio_train_path)
+# xy_test_radio.to_csv(radio_test_path)
+
+###################################################################################################
+
+# 临床数据分支
+input_dim_cli = 118
+nlogits = 1536
+
+
+#影像组学分支
+input_dim_radio = 102
+
+
+# cnn模型特征输入分支
+XSIZE,YSIZE,ZSIZE = 224,224,3
+
+# transfer learning setting
+#   0 - no initial weights
+#   1 - imagenet pretrained weights
+#   2 - transfer learning weights from SMC-net
+#
+transfer_learning_style = 2  
+
+# cnn-image input
+if transfer_learning_style==0:
+    clf_cnn = EfficientNetB3(include_top=False,input_shape=(XSIZE,YSIZE,ZSIZE))
+elif transfer_learning_style==1:
+    clf_cnn = EfficientNetB3(include_top=False, weights='imagenet', input_shape=(XSIZE, YSIZE, ZSIZE))
+else:    
+    clf_cnn = EfficientNetB3(include_top=False,input_shape=(XSIZE,YSIZE,ZSIZE))
+    model = GlobalAveragePooling2D(name='GlobalAverage')(clf_cnn.output)
+    model = Dense(256, activation='relu')(model)
+    model = Dropout(0.5)(model)
+    model = Dense(64, activation='relu')(model)
+    model = Dense(2, activation='softmax')(model)
+    model_efn_sp = Model(clf_cnn.input, model)
+    cnn_weight_file = "breast/deep_learning/checkpoint/saved_models/EfficientNetB3-cnn02.193.h5"
+    model_efn_sp.load_weights(cnn_weight_file)
+    # print(model_efn_sp.summary())
+
+    last_conv_layer_name = "top_activation"
+    clf_cnn = tf.keras.models.Model(
+        [model_efn_sp.inputs], [model_efn_sp.get_layer(last_conv_layer_name).output]
+    )
+    # print(clf_cnn.summary())
+
+    # model_cnn = Dense(102, activation='relu',name='reshape_feature_vector')(clf_cnn.output)
+    model_cnn = GlobalAveragePooling2D(name='GlobalAverage2D_cnn')(clf_cnn.output)
+    # model_cnn = Dense(1024, activation='relu')(model_cnn)
+    model_cnn = Reshape((1,nlogits,1),name="reshape_cnn_vector")(model_cnn)
+    cnn_efn = Model(inputs=clf_cnn.input, outputs=model_cnn, name="model_cnn")
+    for layer in clf_cnn.layers:
+        layer.trainable = True
+        layer._name = layer._name + str("_cnn")
+
+# 图像数据
+x_train_cnn, y_train_cnn = get_images("breast/jicheng/dataset/dpset/02030405071516")
+print(len([i for i  in y_train_cnn if i == 0]))
+print(len([i for i  in y_train_cnn if i == 1]))
+
+x_test1_cnn, y_test1_cnn = get_images("breast/jicheng/dataset/dpset/11")
+x_test2_cnn, y_test2_cnn = get_images("breast/jicheng/dataset/dpset/12")
+# print(x_test_cnn)
+
+# 用于训练的数据大小
+print("用于训练的图像数据为", x_train_cnn.shape)
+print("用于测试1的图像数据为", x_test1_cnn.shape)
+print("用于测试2的图像数据为", x_test2_cnn.shape)
+
+# cnn
+x_train_cnn_features = cnn_efn.predict(x_train_cnn)
+x_test1_cnn_features= cnn_efn.predict(x_test1_cnn)
+x_test2_cnn_features= cnn_efn.predict(x_test2_cnn)
+print("x_test1_cnn_features shape is : ",x_test1_cnn_features.shape)
+
+# x_train_cnn_features = np.expand_dims(x_train_cnn_features, axis=-1)
+# x_test1_cnn_features = np.expand_dims(x_test1_cnn_features, axis=-1)
+# x_test2_cnn_features = np.expand_dims(x_test2_cnn_features, axis=-1)
+# print(x_test1_cnn_features.shape)
+
+
+#cli
+cli_train_path = r'breast/jicheng/dataset/cli_02030405071516_all.csv'
+cli_test1_path = r'breast/jicheng/dataset/cli_11_all.csv'
+cli_test2_path = r'breast/jicheng/dataset/cli_12_all.csv'
+xy_train_cli=pd.read_csv(cli_train_path)
+xy_test1_cli=pd.read_csv(cli_test1_path)
+xy_test2_cli=pd.read_csv(cli_test2_path)
+
+x_train_cli_vector = xy_train_cli[xy_train_cli.columns[2:]]
+x_train_cli_vector = x_train_cli_vector.values
+y_train_cli_vector = xy_train_cli['labels']
+y_train_cli_vector = y_train_cli_vector.values
+
+x_test1_cli_vector = xy_test1_cli[xy_test1_cli.columns[2:]]
+x_test1_cli_vector = x_test1_cli_vector.values
+y_test1_cli_vector = xy_test1_cli['labels']
+y_test1_cli_vector = y_test1_cli_vector.values
+
+x_test2_cli_vector = xy_test2_cli[xy_test2_cli.columns[2:]]
+# print(x_test2_cli_vector)
+x_test2_cli_vector = x_test2_cli_vector.values
+y_test2_cli_vector = xy_test2_cli['labels']
+y_test2_cli_vector = y_test2_cli_vector.values
+
+x_train_cli_vector = np.expand_dims(x_train_cli_vector, axis=-1)
+x_test1_cli_vector = np.expand_dims(x_test1_cli_vector, axis=-1)
+x_test2_cli_vector = np.expand_dims(x_test2_cli_vector, axis=-1)
+x_train_cli_vector = np.expand_dims(x_train_cli_vector, axis=1)
+x_test1_cli_vector = np.expand_dims(x_test1_cli_vector, axis=1)
+x_test2_cli_vector = np.expand_dims(x_test2_cli_vector, axis=1)
+print("x_test1_cli_vector shape is: ",x_test1_cli_vector.shape)
+
+
+#radio
+radio_train_path = r'breast/jicheng/dataset/radio_02030405071516_all.csv'
+radio_test1_path = r'breast/jicheng/dataset/radio_11_all.csv'
+radio_test2_path = r'breast/jicheng/dataset/radio_12_all.csv'
+xy_train_radio = pd.read_csv(radio_train_path)
+xy_test1_radio = pd.read_csv(radio_test1_path)
+xy_test2_radio = pd.read_csv(radio_test2_path)
+x_train_radio_vector = xy_train_radio[xy_train_radio.columns[3:]]
+# print(x_train_radio_vector)
+x_train_radio_vector = x_train_radio_vector.values
+y_train_radio_vector = xy_train_radio['labels']
+y_train_radio_vector = y_train_radio_vector.values
+# print('the x_train_radio_vector is :',x_train_radio_vector.shape)
+x_test1_radio_vector = xy_test1_radio[xy_test1_radio.columns[3:]]
+x_test1_radio_vector = x_test1_radio_vector.values
+y_test1_radio_vector = xy_test1_radio['labels']
+y_test1_radio_vector = y_test1_radio_vector.values
+
+x_test2_radio_vector = xy_test2_radio[xy_test2_radio.columns[3:]]
+x_test2_radio_vector = x_test2_radio_vector.values
+y_test2_radio_vector = xy_test2_radio['labels']
+y_test2_radio_vector = y_test2_radio_vector.values
+
+x_train_radio_vector = np.expand_dims(x_train_radio_vector, axis=-1)
+x_test1_radio_vector = np.expand_dims(x_test1_radio_vector, axis=-1)
+x_test2_radio_vector = np.expand_dims(x_test2_radio_vector, axis=-1)
+x_train_radio_vector = np.expand_dims(x_train_radio_vector, axis=1)
+x_test1_radio_vector = np.expand_dims(x_test1_radio_vector, axis=1)
+x_test2_radio_vector = np.expand_dims(x_test2_radio_vector, axis=1)
+print("x_test1_radio_vector shape is : ",x_test1_radio_vector.shape)
+
+print(len([i for i  in y_train_cnn if i == 0]))
+print(len([i for i  in y_train_cnn if i == 1]))
+print(x_train_cnn_features.shape,x_train_radio_vector.shape,x_train_cli_vector.shape,y_train_cnn.shape)
+
+input_concat = np.concatenate((x_train_cnn_features,x_train_cli_vector,x_train_radio_vector),axis=2)
+test1_concat = np.concatenate((x_test1_cnn_features,x_test1_cli_vector,x_test1_radio_vector),axis=2)
+test2_concat = np.concatenate((x_test2_cnn_features,x_test2_cli_vector,x_test2_radio_vector),axis=2)
+print(input_concat.shape)
+
+permutation = np.random.permutation(y_train_cnn.shape[0])         # 利用np.random.permutaion函数，获得打乱后的行数，输出permutation
+input_concat = input_concat[permutation]                                       # 得到打乱后数据
+y_train_cnn = y_train_cnn[permutation]
+print(len([i for i  in y_train_cnn if i == 0]))
+print(len([i for i  in y_train_cnn if i == 1]))
+
+
+# print(cli_model.summary()
+
+import os
+import cv2
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+import tensorflow_addons as tfa  # Community-made Tensorflow code (AdamW optimizer)
+from vittransformer import Patches, Mlp, PatchEncoder,ClassToken
+from Confidence_interval import bootstrap_auc
+
+
+def main():
+    # Downloading dataset
+    num_classes = 2
+    input_shape = (1, 1756, 1)
+    x_train, y_train = input_concat, y_train_cnn
+    x_test1, y_test1 = test1_concat, y_test1_cnn
+    x_test2, y_test2 = test2_concat, y_test2_cnn
+ 
+    # Hyper-parameters
+    learning_rate = 0.001
+    weight_decay = 0.0001
+    batch_size = 32
+    num_epochs = 200
+    # image_size = 48 # We resize input images to this size
+    image_size = 2
+    patch_size = 2  # Size of each patch extracted from the image (12x12 patches of size 6x6)
+    num_patches = 439
+    # num_patches = image_size // patch_size
+    # num_patches = 3
+    projection_dim = 64
+    num_heads = 8
+    transformer_units = [
+        projection_dim * 2,
+        projection_dim,
+    ]  # Size of the transformer layers
+    transformer_layers = 8  # Nr of times we are repeating the transformer encoder
+    mlp_head_units = [2048, 1024]
+
+    # Data augmentation
+    data_augmentation = keras.Sequential(
+        [
+            layers.experimental.preprocessing.RandomFlip("horizontal"),
+            layers.experimental.preprocessing.RandomRotation(factor=0.02),
+            layers.experimental.preprocessing.RandomZoom(height_factor=0.2, width_factor=0.2)
+        ],
+        name='data_augmentation'
+    )
+    # data_augmentation.layers[0].adapt(x_train_cnn)
+    # data_augmentation.layers[1].adapt(x_train_cnn)
+    # data_augmentation.layers[2].adapt(x_train_cnn)
+
+    # data_augmentation.layers[0].adapt(x_train_radio_vector)
+    # data_augmentation.layers[1].adapt(x_train_radio_vector)
+    # data_augmentation.layers[2].adapt(x_train_radio_vector)
+
+    # data_augmentation.layers[0].adapt(x_train_cli_vector)
+    # data_augmentation.layers[1].adapt(x_train_cli_vector)
+    # data_augmentation.layers[2].adapt(x_train_cli_vector)
+
+    # combinedInput = concatenate(axis=-1, inputs=[cnn_efn.output, radio_model.output, cli_model.output], name="concatenate_all")
+
+    def create_vit_classifier():
+        # Creating classifier
+        inputs = layers.Input(shape=input_shape)
+        reshape = Reshape((image_size, image_size,439))(inputs)
+        augmented = data_augmentation(reshape)
+        patches = Patches(patch_size)(augmented)
+
+        # reshape = Reshape((image_size, image_size,2))(normalization)
+        # patches = Patches(patch_size)(reshape)
+
+        encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
+        encoded_patches = ClassToken(name="cls_token")(encoded_patches)
+ 
+        for _ in range(transformer_layers):
+            # Layer normalization and self-attention
+            x1 = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+            attention_output = layers.MultiHeadAttention(
+                num_heads, key_dim=projection_dim, dropout=0.1
+            )(x1, x1)
+ 
+            # Residual conenction
+            x2 = layers.Add()([attention_output,encoded_patches])
+ 
+            # Normalization and MLP
+            x3 = layers.LayerNormalization(epsilon=1e-6)(x2)
+            x3 = Mlp(x3, hidden_units=transformer_units, dropout_rate=0.1)
+ 
+            # Residual connection
+            encoded_patches = layers.Add()([x3, x2])
+ 
+        # Create a [batch_size, projection_dim] tensor
+        representation = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+        representation = layers.Flatten()(representation)
+        representation = layers.Dropout(0.5)(representation)
+ 
+        # Add MLP
+        features = Mlp(representation, hidden_units=mlp_head_units, dropout_rate=0.5)
+ 
+        # Classify output
+        outputs = layers.Dense(2, activation="softmax", name="dense_output_3")(features)
+ 
+        model = Model(inputs=inputs, outputs=outputs)
+        for layer in model.layers:
+            layer.trainable = True
+            layer._name = layer._name + str("_mm")
+
+        return model
+ 
+    def run_experiment(model):
+        optimizer = tfa.optimizers.AdamW(
+            learning_rate=learning_rate, weight_decay=weight_decay
+
+        )
+
+        # print(model.summary())
+ 
+        model.compile(
+            optimizer=optimizer,
+            loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+            metrics=[
+                keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
+                # keras.metrics.SparseTopKCategoricalAccuracy(5, name='top-5 accuracy'),
+            ],
+        )
+
+        save_dir = os.path.join('breast/jicheng/checkpoint/MMFF', 'saved_models')
+        # model_name = 'MMFF-Net.{epoch:03d}.h5'
+        model_name = 'N-MMFF-Net.4best01.h5'
+        # if os.path.exists(save_dir):
+        #     shutil.rmtree(save_dir)	
+        # os.makedirs(save_dir)
+        filepath = os.path.join(save_dir, model_name)
+        checkpoint = ModelCheckpoint(filepath=filepath,
+                                     monitor='val_accuracy',
+                                     verbose=1,
+                                     save_best_only=True,
+                                     save_weights_only=True)
+        callbacks = [checkpoint]
+ 
+        history = model.fit(
+            x_train,y_train,
+            batch_size=batch_size,
+            epochs=num_epochs,
+            validation_split=0.1,
+            shuffle=True,
+            callbacks=callbacks
+        )
+        # model_saavepath = r'breast/jicheng/checkpoint/MMFF/saved_models/MMFF-NetAll.best03.h5'
+        # model.save(model_saavepath)
+ 
+        model.load_weights(filepath)
+        _, test1_accuracy= model.evaluate(x_test1, y_test1)
+        print(f"Test1 Accuracy:       {test1_accuracy}")
+        _, test2_accuracy= model.evaluate(x_test2, y_test2)
+        print(f"Test2 Accuracy:       {test2_accuracy}")
+        return history
+ 
+    model = create_vit_classifier()
+    run_experiment(model)
+
+    K.clear_session()
+    model_best = create_vit_classifier()
+    weights = r'breast/jicheng/checkpoint/MMFF/saved_models/N-MMFF-Net.4best01.h5'
+    model_best.load_weights(weights)
+
+    optimizer = tfa.optimizers.AdamW(
+        learning_rate=learning_rate, weight_decay=weight_decay
+    )
+    model_best.compile(
+        optimizer=optimizer,
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=[
+            keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
+            # keras.metrics.SparseTopKCategoricalAccuracy(5, name='top-5 accuracy'),
+        ],
+    )
+
+    y_train_predict_MM=model_best.predict(x_train)
+    y_test1_predict_MM=model_best.predict(x_test1)
+    y_test2_predict_MM=model_best.predict(x_test2)
+    print(y_test1_predict_MM)
+    exit()
+    # print(y_train)
+
+
+    y_train_predict_classindex_MM = np.argmax(y_train_predict_MM,axis=1)
+    y_test1_predict_classindex_MM = np.argmax(y_test1_predict_MM,axis=1)
+    y_test2_predict_classindex_MM = np.argmax(y_test2_predict_MM,axis=1)
+    # print(y_test1_predict_classindex_MM)
+    
+
+    flag_train_MM = 0
+    for i in range(len(y_train_predict_classindex_MM)):
+        # print(y_predict_classindex[i], y_test[i])
+        if(y_train_predict_classindex_MM[i] == y_train[i]):
+            flag_train_MM += 1
+        else:
+            continue
+    print("MModel train accuracy:", flag_train_MM/(len(y_train)))
+
+    flag_test1_MM = 0
+    for i in range(len(y_test1_predict_classindex_MM)):
+        # print(y_predict_classindex[i], y_test[i])
+        if(y_test1_predict_classindex_MM[i] == y_test1[i]):
+            flag_test1_MM += 1
+        else:
+            continue
+    print("MModel test1 accuracy:", flag_test1_MM/(len(y_test1)))
+
+    flag_test2_MM = 0
+    for i in range(len(y_test2_predict_classindex_MM)):
+        # print(y_predict_classindex[i], y_test[i])
+        if(y_test2_predict_classindex_MM[i] == y_test2[i]):
+            flag_test2_MM += 1
+        else:
+            continue
+    print("MModel test2 accuracy:", flag_test2_MM/(len(y_test2)))
+
+
+    print("*******************************")
+    _,train_mmodel_score = model_best.evaluate(x_train,y_train)
+    _,test1_mmodel_score = model_best.evaluate(x_test1,y_test1)
+    _,test2_mmodel_score = model_best.evaluate(x_test2,y_test2)
+    print("train_mmodel_score is : " + str(train_mmodel_score))
+    print("test1_mmodel_score is : " + str(test1_mmodel_score))
+    print("test2_mmodel_score is : " + str(test2_mmodel_score))
+
+    precision_train = precision_score(y_train,y_train_predict_classindex_MM, average='binary')
+    recall_train = recall_score(y_train, y_train_predict_classindex_MM, average='binary')
+    f1_train = f1_score(y_train, y_train_predict_classindex_MM, average='binary')
+    acc_train = accuracy_score(y_train, y_train_predict_classindex_MM)
+    auc_CI_train = bootstrap_auc(y_train, y_train_predict_MM[:,1],len(y_train))
+
+    # print('the train 精准值 is :', precision_train)
+    # print('the train 召回率 is :', recall_train)
+    # print('the train F1 is :', f1_train)
+    # print("the train 准确率 is :", acc_train)
+    cm(y_train,y_train_predict_classindex_MM,'MModel_try_3.b6_train')
+    roc(y_train,y_train_predict_MM[:,1],'MModel_try_3.b6_train')
+    print("the train 置信区间 is :",auc_CI_train)
+    print("***********************************************************")
+
+    precision_test1 = precision_score(y_test1,y_test1_predict_classindex_MM, average='binary')
+    recall_test1 = recall_score(y_test1, y_test1_predict_classindex_MM, average='binary')
+    f1_test1 = f1_score(y_test1, y_test1_predict_classindex_MM, average='binary')
+    acc_test1 = accuracy_score(y_test1, y_test1_predict_classindex_MM)
+    auc_CI_test1 = bootstrap_auc(y_test1, y_test1_predict_MM[:,1],len(y_test1))
+
+    # print('the test1 精准值 is :', precision_test1)
+    # print('the test1 召回率 is :', recall_test1)
+    # print('the test1 F1 is :', f1_test1)
+    # print("the test1 准确率 is :", acc_test1)
+    cm(y_test1,y_test1_predict_classindex_MM,'MModel_try_3.b6_test1')
+    roc(y_test1,y_test1_predict_MM[:,1],'MModel_try_3.b6_test1')
+    print("the test1 置信区间 is :",auc_CI_test1)
+    print("***********************************************************")
+
+    precision_test2 = precision_score(y_test2,y_test2_predict_classindex_MM, average='binary')
+    recall_test2 = recall_score(y_test2, y_test2_predict_classindex_MM, average='binary')
+    f1_test2 = f1_score(y_test2, y_test2_predict_classindex_MM, average='binary')
+    acc_test2 = accuracy_score(y_test2, y_test2_predict_classindex_MM)
+    auc_CI_test2 = bootstrap_auc(y_test2, y_test2_predict_MM[:,1],len(y_test2))
+
+    # print('the test2 精准值 is :', precision_test2)
+    # print('the test2 召回率 is :', recall_test2)
+    # print('the test2 F1 is :', f1_test2)
+    # print("the test2 准确率 is :", acc_test2)
+    cm(y_test2,y_test2_predict_classindex_MM,'MModel_try_3.b6_test2')
+    roc(y_test2,y_test2_predict_MM[:,1],'MModel_try_3.b6_test2')
+    print("the test2 置信区间 is :",auc_CI_test2)
+    print("***********************************************************")
+    print(y_test2_predict_MM[:,1])
+    exit()
+    a_labels = [i for i in y_train]
+    a_predict = [i for i in y_train_predict_MM[:,1]]
+    b_labels = [i for i in y_test1]
+    b_predict = [i for i in y_test1_predict_MM[:,1]]
+    c_labels = [i for i in y_test2]
+    c_predict = [i for i in y_test2_predict_MM[:,1]]
+
+
+    df_result_train = pd.DataFrame({'N-MMFF_train_labels':a_labels,'N-MMFF_train_predict':a_predict})
+    df_result_test1 = pd.DataFrame({'N-MMFF_test1_labels':b_labels,'N-MMFF_test1-predict':b_predict})
+    df_result_test2 = pd.DataFrame({'N-MMFF_test2_labels':c_labels,'N-MMFF_test2-predict':c_predict})
+    print(df_result_test1)
+
+    predict_train = pd.read_csv('breast/jicheng/dataset/predict_train.csv')
+    predict_test1 = pd.read_csv('breast/jicheng/dataset/predict_test1.csv')
+    predict_test2 = pd.read_csv('breast/jicheng/dataset/predict_test2.csv')
+    print(df_result_test1)
+    df_result_train.to_csv(r"breast/jicheng/dataset/predict_N-MMFF_train.csv", index=False)
+    df_result_test1.to_csv(r"breast/jicheng/dataset/predict_N-MMFF_test1.csv", index=False)
+    df_result_test2.to_csv(r"breast/jicheng/dataset/predict_N-MMFF_test2.csv", index=False)
+
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+
+def cm(y_test,y_predicted,name):
+    classes = [0,1]
+    cm = confusion_matrix(y_test,y_predicted, labels=[0,1])
+    print(cm)
+    TP = cm[1, 1]
+    TN = cm[0, 0]
+    FP = cm[0, 1]
+    FN = cm[1, 0]
+    # 通过混淆矩阵计算每个评估指标的值
+    print('Accuracy:', (TP + TN) / float(TP + TN + FP + FN))
+    print('Sensitivity:', TP / float(TP + FN))
+    print('Specificity:', TN / float(TN + FP))
+    print('PPV:',TP / float(TP + FP))
+    print('NPV:',TN / float(TN + FN))
+    print('Recall:',TP / float(TP + FN))
+    print('Precision:',TP / float(TP + FP))
+    P = TP / float(TP + FP)
+    R = TP / float(TP + FN)
+    print('F1-score:',(2*P*R)/(P+R))
+    plt.figure(figsize=(5,5))
+    plt.imshow(cm, cmap=plt.cm.Greens)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation = 0)
+    plt.yticks(tick_marks, classes)
+    thresh = cm.max() / 2.
+    for i in range(len(cm)):
+        for j in range(len(cm)):
+            plt.annotate(cm[j, i], xy=(i, j), horizontalalignment='center', verticalalignment='center', 
+                            fontsize=16,color = 'white' if cm[i, j] > thresh else 'black')
+    plt.ylabel('True label', fontsize=16)
+    plt.xlabel('Predicted label', fontsize=16)
+    plt.title('Confusion matrix : ' + name,fontsize=16)
+    plt.savefig('breast/jicheng/pictures/cm_' + name + '.jpg')
+    plt.show()
+
+#roc曲线
+from sklearn.metrics import roc_curve, auc  ###计算roc和auc
+def roc(y_test,y_score,name):
+
+    fpr,tpr,threshold = roc_curve(y_test, y_score) ###计算真正率和假正率
+    # print(threshold)
+    roc_auc = auc(fpr,tpr) ###计算auc的值
+    print('AUC : {}'.format(roc_auc))
+
+    plt.figure(figsize=(5,5))
+    plt.plot(fpr, tpr, color='darkorange', linewidth=2, label='ROC curve (area = %0.2f)' % roc_auc) ###假正率为横坐标，真正率为纵坐标做曲线
+    plt.plot([0, 1], [0, 1], color='navy', linewidth=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize = 16)
+    plt.ylabel('True Positive Rate', fontsize = 16)
+    plt.title('Receiver operating characteristic : '+ name,fontsize = 16)
+    plt.legend(loc="lower right", fontsize = 12)
+    plt.savefig('breast/jicheng/pictures/roc_' + name + '.jpg')
+    plt.show()
+ 
+if __name__ == '__main__':
+    main()
+
+    
