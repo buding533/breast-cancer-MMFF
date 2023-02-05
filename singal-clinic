@@ -1,0 +1,288 @@
+import re
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils import shuffle
+import joblib
+import xgboost as xgb
+import math
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+import matplotlib.pyplot as plt
+from Confidence_interval import bootstrap_auc
+
+pd.options.display.float_format = '{:.10f}'.format
+
+all = {}
+with open('breast/clinic/checkpoint/xgb_model.txt', 'r', encoding='utf-8') as f:
+    strs = f.read()
+    for i in strs.split('booster'):
+        if not i:
+            continue
+        booster = re.findall('\[[0-9]+\]', i)
+        searchObj = re.findall( r'([0-9]+:leaf=-*[0-9].*)', i)
+        # print('booster{}:'.format(booster[0]))
+        
+        
+        leaf = {}
+        for j in searchObj:
+            index, value = j.split(':leaf=')
+            leaf[index] = value
+
+        all['booster{}:'.format(booster[0])] = leaf
+print(all)
+
+train_path = r'breast/jicheng/dataset/clinicset/cli_02030405071516.xls'
+test1_path = r'breast/jicheng/dataset/clinicset/cli_11.xls'
+test2_path = r'breast/jicheng/dataset/clinicset/cli_12.xls'
+
+model_cli = joblib.load(r'breast/clinic/checkpoint/xgb_clinic_train.pkl')
+
+train_data = pd.read_excel(train_path)
+index_cli = train_data.columns[3:]
+cli_train_x = train_data[train_data.columns[3:]]
+cli_train_y = train_data['labels']
+cli_train_y = cli_train_y.values
+cli_train_patient = train_data['patients']
+
+# 注意下面两行在训练集与测试集上的区别
+scaler = StandardScaler()
+scaler.fit(cli_train_x)
+cli_train_x= scaler.transform(cli_train_x)
+cli_train_x= pd.DataFrame(cli_train_x)
+cli_train_x.columns = index_cli
+print("the x_train head is :")
+print(cli_train_x.head())
+
+test1_data = pd.read_excel(test1_path)
+cli_test1_x = test1_data[test1_data.columns[3:]]
+cli_test1_y = test1_data['labels']
+cli_test1_y = cli_test1_y.values
+
+cli_test1_patient = test1_data['patients']
+cli_test1_x = scaler.transform(cli_test1_x)
+cli_test1_x = pd.DataFrame(cli_test1_x)
+cli_test1_x.columns = index_cli
+print("the x_test1 head is :")
+print(cli_test1_x.head())
+
+test2_data = pd.read_excel(test2_path)
+cli_test2_x = test2_data[test2_data.columns[3:]]
+cli_test2_y = test2_data['labels']
+cli_test2_y = cli_test2_y.values
+
+cli_test2_patient = test2_data['patients']
+cli_test2_x = scaler.transform(cli_test2_x)
+cli_test2_x = pd.DataFrame(cli_test2_x)
+cli_test2_x.columns = index_cli
+print("the x_test2 head is :")
+print(cli_test2_x.head())
+
+dtrain = xgb.DMatrix(cli_train_x)
+dtest1 = xgb.DMatrix(cli_test1_x)
+dtest2 = xgb.DMatrix(cli_test2_x)
+
+leaf_index_train = model_cli.predict(dtrain, pred_leaf = True)
+leaf_index_test1 = model_cli.predict(dtest1, pred_leaf = True)
+leaf_index_test2 = model_cli.predict(dtest2, pred_leaf = True)
+
+
+
+estimators = 113
+df_train = pd.DataFrame()
+df_test1 = pd.DataFrame()
+df_test2 = pd.DataFrame()
+df_train_path = r'breast/jicheng/dataset/cli_02030405071516_weight.csv'
+df_test1_path = r'breast/jicheng/dataset/cli_11_weight.csv'
+df_test2_path = r'breast/jicheng/dataset/cli_12_weight.csv'
+
+def leaf_weight_frame(estimators,leaf_index,df_weight, df_path, labels, patients):
+    Sum = [0.0] * len(leaf_index)
+    for i in range(len(leaf_index)):
+        weight = []
+        col_names = []
+        sum = 0.0
+        for j in range(estimators):
+            booster_index = 'booster[{}]:'.format(j)
+            booster = all[booster_index]  
+            leaf_ind = int(leaf_index[i][j])
+            leaf_weight = float(booster['{}'.format(leaf_ind)])
+            sum += leaf_weight
+            weight.append(leaf_weight)
+            col_names.append('booster[{}]'.format(j))
+        sum = 1 /(1+(math.e**-sum))
+        Sum[i] = sum
+        result = dict(map(lambda x,y:[x,y], col_names,weight))
+        df_add = pd.DataFrame.from_dict(result.values()).T
+        df_add.columns = result.keys()
+        df_weight = pd.concat([df_weight,df_add])
+    df_weight.index = range(len(df_weight))
+    labels = pd.DataFrame(labels)
+    labels.columns = ['labels']
+    df_weight = pd.concat([labels, patients, df_weight], axis=1)
+    df_weight.to_csv(df_path)
+    print(Sum)
+    print(df_weight)
+
+print(model_cli.predict(dtrain))
+print(cli_train_y)
+leaf_weight_frame(estimators, leaf_index_train, df_train, df_train_path, cli_train_y, cli_train_patient)
+print(model_cli.predict(dtest1))
+leaf_weight_frame(estimators, leaf_index_test1, df_test1, df_test1_path, cli_test1_y, cli_test1_patient)
+leaf_weight_frame(estimators, leaf_index_test2, df_test2, df_test2_path, cli_test2_y, cli_test2_patient)
+
+################################################################################################
+def cm(y_test,y_predicted,name):
+    classes = [0,1]
+    cm = confusion_matrix(y_test,y_predicted, labels=[0,1])
+    print(cm)
+    TP = cm[1, 1]
+    TN = cm[0, 0]
+    FP = cm[0, 1]
+    FN = cm[1, 0]
+    # 通过混淆矩阵计算每个评估指标的值
+    print('Accuracy:', (TP + TN) / float(TP + TN + FP + FN))
+    print('Sensitivity:', TP / float(TP + FN))
+    print('Specificity:', TN / float(TN + FP))
+    print('PPV:',TP / float(TP + FP))
+    print('NPV:',TN / float(TN + FN))
+    print('Recall:',TP / float(TP + FN))
+    print('Precision:',TP / float(TP + FP))
+    P = TP / float(TP + FP)
+    R = TP / float(TP + FN)
+    print('F1-score:',(2*P*R)/(P+R))
+    plt.figure(figsize=(5,5))
+    plt.imshow(cm, cmap=plt.cm.Greens)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation = 0)
+    plt.yticks(tick_marks, classes)
+    thresh = cm.max() / 2.
+    for i in range(len(cm)):
+        for j in range(len(cm)):
+            plt.annotate(cm[j, i], xy=(i, j), horizontalalignment='center', verticalalignment='center', 
+                            fontsize=16,color = 'white' if cm[i, j] > thresh else 'black')
+    plt.ylabel('True label', fontsize=16)
+    plt.xlabel('Predicted label', fontsize=16)
+    plt.title('Confusion matrix : ' + name,fontsize=16)
+    plt.savefig('breast/jicheng/pictures/cm_' + name + '.jpg')
+    plt.show()
+
+#roc曲线
+from sklearn.metrics import roc_curve, auc  ###计算roc和auc
+def roc(y_test,y_score,name):
+
+    fpr,tpr,threshold = roc_curve(y_test, y_score) ###计算真正率和假正率
+    # print(threshold)
+    roc_auc = auc(fpr,tpr) ###计算auc的值
+    print('AUC : {}'.format(roc_auc))
+
+    plt.figure(figsize=(5,5))
+    plt.plot(fpr, tpr, color='darkorange', linewidth=2, label='ROC curve (area = %0.2f)' % roc_auc) ###假正率为横坐标，真正率为纵坐标做曲线
+    plt.plot([0, 1], [0, 1], color='navy', linewidth=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize = 16)
+    plt.ylabel('True Positive Rate', fontsize = 16)
+    plt.title('Receiver operating characteristic : '+ name,fontsize = 16)
+    plt.legend(loc="lower right", fontsize = 12)
+    plt.savefig('breast/jicheng/pictures/roc_' + name + '.jpg')
+    plt.show()
+
+y_test1_predict_cli = model_cli.predict(dtest1)
+y_test2_predict_cli = model_cli.predict(dtest2)
+y_train_predict_cli = model_cli.predict(dtrain)
+print(y_test1_predict_cli)
+
+y_test1_predict_classindex_cli = (y_test1_predict_cli >= 0.5)*1
+y_test2_predict_classindex_cli = (y_test2_predict_cli >= 0.5)*1
+y_train_predict_classindex_cli = (y_train_predict_cli >= 0.5)*1
+print(y_test1_predict_classindex_cli)
+
+flag_test1_cli = 0
+for i in range(len(y_test1_predict_classindex_cli)):
+    if(y_test1_predict_classindex_cli[i] == cli_test1_y[i]):
+        flag_test1_cli += 1
+    else:
+        continue
+print("cli test1 accuracy:", flag_test1_cli/(len(cli_test1_y)))
+
+flag_test2_cli = 0
+for i in range(len(y_test2_predict_classindex_cli)):
+    if(y_test2_predict_classindex_cli[i] == cli_test2_y[i]):
+        flag_test2_cli += 1
+    else:
+        continue
+print("cli test2 accuracy:", flag_test2_cli/(len(cli_test2_y)))
+
+flag_train_cli = 0
+for i in range(len(y_train_predict_classindex_cli)):
+    if(y_train_predict_classindex_cli[i] == cli_train_y[i]):
+        flag_train_cli += 1
+    else:
+        continue
+print("cli train accuracy:", flag_train_cli/(len(cli_train_y)))
+
+print("*******************************")
+
+precision_test1 = precision_score(cli_test1_y,y_test1_predict_classindex_cli, average='binary')
+recall_test1 = recall_score(cli_test1_y, y_test1_predict_classindex_cli, average='binary')
+f1_test1 = f1_score(cli_test1_y, y_test1_predict_classindex_cli, average='binary')
+acc_test1 = accuracy_score(cli_test1_y, y_test1_predict_classindex_cli)
+auc_CI_test1 = bootstrap_auc(cli_test1_y, y_test1_predict_cli,len(cli_test1_y))
+
+precision_test2 = precision_score(cli_test2_y,y_test2_predict_classindex_cli, average='binary')
+recall_test2 = recall_score(cli_test2_y, y_test2_predict_classindex_cli, average='binary')
+f1_test2 = f1_score(cli_test2_y, y_test2_predict_classindex_cli, average='binary')
+acc_test2 = accuracy_score(cli_test2_y, y_test2_predict_classindex_cli)
+auc_CI_test2 = bootstrap_auc(cli_test2_y, y_test2_predict_cli,len(cli_test2_y))
+
+precision_train = precision_score(cli_train_y,y_train_predict_classindex_cli, average='binary')
+recall_train = recall_score(cli_train_y, y_train_predict_classindex_cli, average='binary')
+f1_train = f1_score(cli_train_y, y_train_predict_classindex_cli, average='binary')
+acc_train = accuracy_score(cli_train_y, y_train_predict_classindex_cli)
+auc_CI_train = bootstrap_auc(cli_train_y, y_train_predict_cli,len(cli_train_y))
+
+# print('the train 精准值 is :', precision_train)
+# print('the train 召回率 is :', recall_train)
+# print('the train F1 is :', f1_train)
+# print("the train 准确率 is :", acc_train)
+cm(cli_train_y,y_train_predict_classindex_cli,'MModel_cli_02030405071516')
+roc(cli_train_y,y_train_predict_cli,'MModel_cli_02030405071516')
+print("the train 置信区间 is :",auc_CI_train)
+print("**************************************")
+# print('the test1 精准值 is :', precision_test1)
+# print('the test1 召回率 is :', recall_test1)
+# print('the test1 F1 is :', f1_test1)
+# print("the test1 准确率 is :", acc_test1)
+cm(cli_test1_y,y_test1_predict_classindex_cli,'MModel_cli_11')
+roc(cli_test1_y,y_test1_predict_cli,'MModel_cli_11')
+print("the test1 置信区间 is :",auc_CI_test1)
+print("**************************************")
+# print('the test2 精准值 is :', precision_test2)
+# print('the test2 召回率 is :', recall_test2)
+# print('the test2 F1 is :', f1_test2)
+# print("the test2 准确率 is :", acc_test2)
+cm(cli_test2_y,y_test2_predict_classindex_cli,'MModel_cli_12')
+roc(cli_test2_y,y_test2_predict_cli,'MModel_cli_12')
+print("the test2 置信区间 is :",auc_CI_test2)
+
+a_labels = [i for i in cli_train_y]
+a_predict = [i for i in y_train_predict_cli]
+b_labels = [i for i in cli_test1_y]
+b_predict = [i for i in y_test1_predict_cli]
+c_labels = [i for i in cli_test2_y]
+c_predict = [i for i in y_test2_predict_cli]
+
+
+df_result_train = pd.DataFrame({'cli_train_labels':a_labels,'cli_train_predict':a_predict})
+df_result_test1 = pd.DataFrame({'cli_test1_labels':b_labels,'cli_test1-predict':b_predict})
+df_result_test2 = pd.DataFrame({'cli_test2_labels':c_labels,'cli_test2-predict':c_predict})
+print(df_result_test1)
+
+predict_train = pd.read_csv('breast/jicheng/dataset/predict_train.csv')
+predict_test1 = pd.read_csv('breast/jicheng/dataset/predict_test1.csv')
+predict_test2 = pd.read_csv('breast/jicheng/dataset/predict_test2.csv')
+print(df_result_test1)
+df_result_train.to_csv(r"breast/jicheng/dataset/predict_cli_train.csv", index=False)
+df_result_test1.to_csv(r"breast/jicheng/dataset/predict_cli_test1.csv", index=False)
+df_result_test2.to_csv(r"breast/jicheng/dataset/predict_cli_test2.csv", index=False)
