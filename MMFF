@@ -214,6 +214,7 @@ print(x_test2_radio_vector.head(5))
 input_dim_cli = 118
 nlogits = 1536
 
+# 将临床数据的118个特征变为1536
 cli_model = Sequential()
 cli_model.add(Dense(32, input_dim=input_dim_cli, activation="relu", name="dense_1_cli"))
 cli_model.add(Dense(nlogits, activation="relu", name="dense_2_cli"))
@@ -347,6 +348,8 @@ print(x_train_cnn.shape,x_train_radio_vector.shape,x_train_cli_vector.shape,y_tr
 # c = list(zip(x_train_cnn,x_train_radio_vector,x_train_cli_vector,y_train_cnn))              # 将a,b整体作为一个zip,每个元素一一对应后打乱sssssss
 # random.shuffle(c)               # 打乱c
 # x_train_cnn[:],x_train_radio_vector[:],x_train_cli_vector[:],y_train_cnn[:] = zip(*c)             # 将打乱的c解开
+
+# 将数据打乱，防止模型发现数据间的排序规律
 permutation = np.random.permutation(y_train_cnn.shape[0])         # 利用np.random.permutaion函数，获得打乱后的行数，输出permutation
 x_train_cnn = x_train_cnn[permutation]                                       # 得到打乱后数据
 x_train_radio_vector = x_train_radio_vector[permutation]
@@ -373,6 +376,7 @@ def main():
     # Downloading dataset
     num_classes = 2
     input_shape = (1, 1536, 3)
+# 将三种模态连接在一起
     x_train, y_train = [x_train_cnn,x_train_radio_vector,x_train_cli_vector], y_train_cnn
     x_test1, y_test1 = [x_test1_cnn,x_test1_radio_vector,x_test1_cli_vector], y_test1_cnn
     x_test2, y_test2 = [x_test2_cnn,x_test2_radio_vector,x_test2_cli_vector], y_test2_cnn
@@ -417,14 +421,14 @@ def main():
     # data_augmentation.layers[0].adapt(x_train_cli_vector)
     # data_augmentation.layers[1].adapt(x_train_cli_vector)
     # data_augmentation.layers[2].adapt(x_train_cli_vector)
-
+# 将各自模态处理后的输出向量连接起来，进行融合
     combinedInput = concatenate(axis=-1, inputs=[cnn_efn.output, radio_model.output, cli_model.output], name="concatenate_all")
 
     def create_vit_classifier():
         # Creating classifier
         # normalization =layers.layerNormalization(input_shape=combinedInput.shape)(combinedInput)
         # reshape = Reshape((image_size, image_size,2))(normalization)
-
+# 将融合后的向量调整为图像的形状，48*48*2
         reshape = Reshape((image_size, image_size,2),input_shape=combinedInput.shape)(combinedInput)
         augmented = data_augmentation(reshape)
         patches = Patches(patch_size)(augmented)
